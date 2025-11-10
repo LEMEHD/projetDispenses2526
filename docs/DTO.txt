@@ -1,0 +1,173 @@
+
+======================================================================
+ISFCE – PROJET DISPENSES 25–26
+DOCUMENT : EXPLICATION DES RECORDS DTO
+======================================================================
+
+🌍 L’idée générale
+----------------------------------------------------------------------
+Ce fichier contient trois petits objets “DTO” (Data Transfer Object) qui servent uniquement à recevoir ou envoyer des données entre ton API REST et ton front-end (ou Postman).
+
+Ces objets ne représentent pas le métier (pas d’ID, pas de liens vers la base, pas d’annotations JPA). 
+Ils servent juste à transporter des données temporaires :
+- quand un étudiant crée une demande,
+- ajoute un cours externe,
+- ajoute un document.
+
+Et ici, chacun de ces objets est défini avec le mot-clé record.
+
+----------------------------------------------------------------------
+⚙️ Qu’est-ce qu’un record (et pourquoi on l’utilise ici)
+----------------------------------------------------------------------
+Un record est une forme spéciale de classe Java apparue à partir de Java 16, conçue pour représenter des données immuables (non modifiables après création).
+
+C’est donc une classe simplifiée, idéale pour les DTO.
+
+Exemple :
+public record AddCourseDTO(String etablissement, String code, String libelle, int ects, String urlProgramme) { }
+
+Équivalent à une classe complète :
+public final class AddCourseDTO {
+    private final String etablissement;
+    private final String code;
+    private final String libelle;
+    private final int ects;
+    private final String urlProgramme;
+    public AddCourseDTO(String etablissement, String code, String libelle, int ects, String urlProgramme) {
+        this.etablissement = etablissement;
+        this.code = code;
+        this.libelle = libelle;
+        this.ects = ects;
+        this.urlProgramme = urlProgramme;
+    }
+    public String etablissement() { return etablissement; }
+    public String code() { return code; }
+    public String libelle() { return libelle; }
+    public int ects() { return ects; }
+    public String urlProgramme() { return urlProgramme; }
+}
+
+Autrement dit, un record :
+- crée automatiquement les getters, le constructeur, le toString, equals, hashCode, etc.
+- rend les champs immuables (final).
+- est parfait pour les objets simples qui transportent des données sans logique métier.
+
+----------------------------------------------------------------------
+💬 Donc : classe ou record ?
+----------------------------------------------------------------------
+| Type | Quand l’utiliser | Exemple |
+|------|------------------|----------|
+| class | Quand ton objet a de la logique, des méthodes, ou des valeurs qui peuvent changer | Domain, Services, Entités JPA |
+| record | Quand ton objet est juste un conteneur de données immuables, comme un DTO ou un paramètre d’API | DTO, réponse JSON |
+
+Ici, c’est exactement le cas d’un DTO → donc record = parfait choix.
+
+----------------------------------------------------------------------
+🔍 Ligne par ligne (explication des 3 records)
+----------------------------------------------------------------------
+
+1️⃣ CreateRequestDTO
+----------------------------------------------------------------------
+public record CreateRequestDTO(@NotBlank String section) { }
+
+Rôle :
+C’est l’objet qu’un étudiant envoie quand il crée une nouvelle demande de dispense.
+
+Contenu :
+| Champ | Type | Validation | Rôle |
+|--------|------|-------------|------|
+| section | String | @NotBlank | La section de l’étudiant (ex : “Informatique”, “Gestion”). |
+
+Exemple JSON :
+{
+  "section": "Informatique"
+}
+
+----------------------------------------------------------------------
+2️⃣ AddCourseDTO
+----------------------------------------------------------------------
+public record AddCourseDTO(
+        @NotBlank String etablissement,
+        @NotBlank String code,
+        @NotBlank String libelle,
+        @Min(1) int ects,
+        String urlProgramme
+) { }
+
+Rôle :
+Représente les informations d’un cours externe que l’étudiant ajoute à sa demande de dispense.
+
+Contenu :
+| Champ | Type | Validation | Rôle |
+|--------|------|-------------|------|
+| etablissement | String | @NotBlank | Le nom de l’école d’origine (ex : ULB, HE2B). |
+| code | String | @NotBlank | Le code du cours externe (ex : BD101). |
+| libelle | String | @NotBlank | Le nom complet du cours. |
+| ects | int | @Min(1) | Nombre de crédits ECTS (minimum 1). |
+| urlProgramme | String | optionnel | Lien vers la fiche ou le syllabus. |
+
+Exemple JSON :
+{
+  "etablissement": "HE2B",
+  "code": "BD101",
+  "libelle": "Bases de données",
+  "ects": 5,
+  "urlProgramme": "https://he2b.be/programmes/bd101.pdf"
+}
+
+----------------------------------------------------------------------
+3️⃣ AddDocumentDTO
+----------------------------------------------------------------------
+public record AddDocumentDTO(
+        @NotBlank String type, // BULLETIN/PROGRAMME/MOTIVATION/AUTRE
+        @NotBlank String url
+) { }
+
+Rôle :
+Représente un document joint par l’étudiant à sa demande.
+
+Contenu :
+| Champ | Type | Validation | Rôle |
+|--------|------|-------------|------|
+| type | String | @NotBlank | Le type de document (ex : “BULLETIN”, “PROGRAMME”). |
+| url | String | @NotBlank | Lien ou chemin du fichier (souvent un PDF). |
+
+Exemple JSON :
+{
+  "type": "BULLETIN",
+  "url": "https://monserveur/uploads/bulletin123.pdf"
+}
+
+----------------------------------------------------------------------
+🧠 Pourquoi les @NotBlank et @Min ?
+----------------------------------------------------------------------
+Ces annotations de Jakarta Validation servent à vérifier automatiquement les données reçues.
+
+| Annotation | Signification | Exemple |
+|-------------|----------------|----------|
+| @NotBlank | le champ ne doit pas être vide ou null | "code": "" → rejeté |
+| @Min(1) | valeur numérique minimale | "ects": 0 → rejeté |
+
+Spring vérifie ces contraintes avant même que ton contrôleur exécute la logique.
+Si une donnée est invalide, Spring renvoie automatiquement une erreur 400 (Bad Request).
+
+----------------------------------------------------------------------
+🧩 En résumé
+----------------------------------------------------------------------
+| DTO | Sert à… | Données reçues | Exemple JSON |
+|------|----------|----------------|---------------|
+| CreateRequestDTO | Créer une nouvelle demande | Section | { "section": "Informatique" } |
+| AddCourseDTO | Ajouter un cours externe | Établissement, code, libellé, ects, url | { "etablissement": "HE2B", "code": "BD101", "libelle": "Bases de données", "ects": 5 } |
+| AddDocumentDTO | Ajouter un document | Type, url | { "type": "BULLETIN", "url": "..." } |
+
+----------------------------------------------------------------------
+✅ En résumé simple
+----------------------------------------------------------------------
+- Un record, c’est comme une mini-classe figée : parfait pour transporter des données d’entrée/sortie.
+- Ces trois records (CreateRequestDTO, AddCourseDTO, AddDocumentDTO) servent à transférer les données de l’interface utilisateur vers ton API.
+- Ils ne sont pas liés à la base de données : juste des paquets de données temporaires.
+- Le choix du record ici est parfaitement adapté : concis, sûr, et sans logique métier.
+
+======================================================================
+FIN DU DOCUMENT – À COLLER DANS WORD ET METTRE LA POLICE À 8 PT
+======================================================================
