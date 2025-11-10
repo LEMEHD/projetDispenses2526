@@ -1,0 +1,141 @@
+
+======================================================================
+ISFCE – PROJET DISPENSES 25–26
+DOCUMENT : EXPLICATION DE LA CLASSE ExemptionService
+======================================================================
+
+L’idée générale
+----------------------------------------------------------------------
+C’est le service métier qui gère tout le flux d’une demande de dispense côté étudiant : créer un brouillon, ajouter des cours externes, ajouter des documents, lister ses demandes, soumettre…
+Il parle à la base via les repositories et applique quelques règles automatiques (matching UE / ECTS).
+
+Ce que contient la classe (en clair)
+----------------------------------------------------------------------
+- Des accès BD : etuRepo, ueRepo, reqRepo, courseRepo, docRepo, itemRepo.
+- Une mini “base de connaissances” kb (un simple Map) pour dire :
+  “tel cours externe (Établissement + Code) ↦ telle UE ISFCE”.
+- Des méthodes qui couvrent le parcours étudiant :
+  - créer/chercher un étudiant,
+  - créer une demande en brouillon,
+  - ajouter un cours externe,
+  - ajouter un document,
+  - lister les UE disponibles,
+  - lister mes demandes,
+  - récupérer une demande,
+  - soumettre une demande (avec une auto-pré-décision).
+
+Les annotations du haut (pourquoi on les met)
+----------------------------------------------------------------------
+- @Service : dit à Spring “c’est une classe métier”.
+- @Transactional : toutes les méthodes s’exécutent dans une transaction BD (si un bout échoue, tout est annulé).
+- @RequiredArgsConstructor : génère un constructeur qui injecte automatiquement les final (les repositories).
+  → pas de @Autowired dispersés, c’est propre et testable.
+
+La petite “base de connaissances” (kb)
+----------------------------------------------------------------------
+private final Map<String, String> kb = new HashMap<>();
+
+private String key(String etab, String code) {
+  return (etab + "::" + code).toUpperCase(Locale.ROOT);
+}
+public void seedRule(String etab, String codeExt, String ueCode) {
+  kb.put(key(etab, codeExt), ueCode);
+}
+
+- But : enregistrer des règles simples du style “HE2B::BD101 → IPDB”.
+- Comment : on construit une clé normalisée (ETAB::CODE en majuscules) pour éviter les soucis de casse/espaces.
+- Usage : via seedRule(...) on ajoute des correspondances.
+C’est volontairement simple (en mémoire) pour bootstrapper l’auto-matching sans faire une vraie table de règles.
+
+Les méthodes — parcours Étudiant
+----------------------------------------------------------------------
+
+1) getOrCreateByEmail(String email)
+- Cherche un étudiant par email.
+- S’il existe, on le renvoie.
+- Sinon on le crée immédiatement (juste l’email) et on le sauvegarde.
+Pratique pour démarrer vite sans écran d’inscription.
+
+2) createDraft(String email, String section)
+- Récupère (ou crée) l’étudiant par email.
+- Crée une ExemptionRequest en DRAFT (valeur par défaut dans l’entité) pour la section donnée.
+- Sauvegarde et renvoie la demande brouillon.
+
+3) addExternalCourse(...)
+- Charge la demande par requestId (erreur si introuvable).
+- Construit un ExternalCourse avec établissement, code, libellé, ects, url.
+- Sauvegarde le cours, puis l’attache à la demande (req.addExternalCourse(c) pour garder le lien propre).
+- Renvoie le cours.
+
+4) addDocument(...)
+- Même logique que ci-dessus mais pour un SupportingDocument (type + url).
+- Sauvegarde et attache au dossier.
+
+5) listUE()
+- Renvoie toutes les UE ISFCE (catalogue).
+
+6) myRequests(String email)
+- Récupère (ou crée) l’étudiant par email.
+- Renvoie ses demandes triées de la plus récente à la plus ancienne (requête du repository).
+
+7) get(UUID id)
+- Renvoie une demande par id (ou erreur si inexistante).
+
+La méthode clé : submit(UUID id)
+----------------------------------------------------------------------
+Objectif : passer le dossier de DRAFT → SUBMITTED avec une pré-décision automatique quand c’est possible.
+
+Étapes :
+1) Charger la demande (erreur si introuvable).
+2) Vérifier le minimum requis :
+   - au moins un cours externe,
+   - au moins un document.
+   Sinon → IllegalStateException avec un message clair.
+3) Auto-matching (la magie “kb”) :
+   - Pour chaque cours externe du dossier :
+     - calculer la clé ETAB::CODE et chercher une règle dans kb.
+     - si une UE code ueCode est trouvée :
+       - rechercher l’UE ISFCE correspondante en base,
+       - comparer les ECTS : ectsOk = course.ects ≥ ue.ects.
+       - créer un ExemptionItem :
+         - totalEctsMatches = ectsOk,
+         - decision =
+           - AUTO_ACCEPTED si crédits OK,
+           - NEEDS_REVIEW sinon (à valider par un humain).
+       - sauvegarder l’item et l’attacher à la demande.
+4) Passer le statut de la demande à SUBMITTED et mettre à jour updatedAt.
+5) Retourner la demande (transaction en place → tout reste cohérent).
+
+Remarque : si aucune règle ne correspond, la demande est quand même soumise, mais sans item auto-créé.
+Le dossier restera à traiter manuellement (ou via d’autres écrans/services).
+
+Pourquoi @Transactional ici est utile
+----------------------------------------------------------------------
+- Si une étape échoue (ex. item non sauvegardé), la transaction annule tout → pas de demi-dossiers.
+- Les méthodes “add” (cours/doc) + “submit” font plusieurs écritures liées → atomicité.
+
+Comment ça s’utilise (scénario typique)
+----------------------------------------------------------------------
+1) createDraft(email, "Informatique") → tu obtiens une demande en brouillon.
+2) addExternalCourse(reqId, "HE2B", "BD101", "...", 5, "url") (autant que nécessaire).
+3) addDocument(reqId, RELEVE_NOTES, "url-pdf"), addDocument(reqId, SYLLABUS, "url-pdf").
+4) (Optionnel) seedRule("HE2B", "BD101", "IPDB") pour configurer un mapping auto.
+5) submit(reqId) → validation de complétude + auto-items (AUTO_ACCEPTED si ECTS suffisants).
+6) La demande passe à SUBMITTED.
+
+Points d’attention
+----------------------------------------------------------------------
+- orElseThrow() : si l’id n’existe pas, on a une exception (c’est voulu pour signaler un bug d’usage).
+- AUTO_ACCEPTED repose uniquement sur l’ECTS ici (règle simplifiée) → en vrai, on ajouterait d’autres critères (contenu, heures, etc.).
+- La “base de connaissances” est en mémoire → perdue au redémarrage.
+  Pour du durable, prévoir une entité (ex. MappingRegle) et un repository dédié.
+
+En résumé
+----------------------------------------------------------------------
+- ExemptionService orchestre tout le parcours étudiant autour d’une demande.
+- Il centralise les écritures BD, applique des règles simples d’auto-matching et garantit la cohérence via @Transactional.
+- Il prépare le terrain pour la suite (règles plus riches, validations additionnelles, rôles “enseignant/secrétariat”).
+
+======================================================================
+FIN DU DOCUMENT – À COLLER DANS WORD ET METTRE LA POLICE À 8 PT
+======================================================================
