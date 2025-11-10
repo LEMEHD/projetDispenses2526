@@ -1,0 +1,140 @@
+
+======================================================================
+ISFCE – PROJET DISPENSES 25–26
+DOCUMENT : EXPLICATION DE LA CLASSE RestExceptionHandler
+======================================================================
+
+L’idée générale
+----------------------------------------------------------------------
+Cette classe sert à **intercepter et gérer les erreurs** qui se produisent dans l’API REST.  
+Au lieu de renvoyer des messages techniques ou illisibles (comme une “stack trace”),  
+elle transforme les exceptions en **réponses JSON claires et compréhensibles**.
+
+C’est ce qu’on appelle un **“global exception handler”** (gestionnaire d’erreurs global).  
+Grâce à l’annotation `@RestControllerAdvice`, il s’applique **à tous les contrôleurs** de ton application.
+
+----------------------------------------------------------------------
+Les annotations principales
+----------------------------------------------------------------------
+@RestControllerAdvice  
+→ C’est une version combinée de `@ControllerAdvice` + `@ResponseBody`.  
+Elle permet de capturer les exceptions lancées par les contrôleurs REST  
+et de retourner directement des **réponses JSON structurées**.
+
+@ExceptionHandler(...)  
+→ Indique quelle méthode doit gérer un type d’erreur particulier.  
+Quand une exception du type indiqué est levée quelque part dans l’application,  
+Spring redirige automatiquement vers la méthode correspondante.
+
+----------------------------------------------------------------------
+Structure générale
+----------------------------------------------------------------------
+La classe contient deux méthodes principales :  
+1️⃣ Une pour les erreurs de logique (IllegalStateException)  
+2️⃣ Une pour les erreurs de validation (MethodArgumentNotValidException)
+
+----------------------------------------------------------------------
+1️⃣ Gestion des erreurs de logique métier
+----------------------------------------------------------------------
+Méthode :
+```java
+@ExceptionHandler(IllegalStateException.class)
+public ResponseEntity<Map<String,Object>> handleIllegalState(IllegalStateException ex){
+    return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+}
+```
+
+🎯 Rôle :
+Quand ton code lève une `IllegalStateException` (par exemple dans ExemptionService → “Ajoute au moins un cours externe”),  
+Spring intercepte cette erreur ici.
+
+🧩 Fonctionnement :
+- `ResponseEntity.badRequest()` → génère un code HTTP **400 Bad Request**.  
+- `.body(Map.of("error", ex.getMessage()))` → crée un JSON avec une clé `"error"`  
+  et le message de l’exception.
+
+💡 Exemple :
+Si ton service fait :
+```java
+throw new IllegalStateException("Ajoute au moins un document.");
+```
+La réponse HTTP sera :
+```json
+{
+  "error": "Ajoute au moins un document."
+}
+```
+
+C’est propre, lisible, et facilement exploitable par le front.
+
+----------------------------------------------------------------------
+2️⃣ Gestion des erreurs de validation
+----------------------------------------------------------------------
+Méthode :
+```java
+@ExceptionHandler(MethodArgumentNotValidException.class)
+public ResponseEntity<Map<String,Object>> handleValidation(MethodArgumentNotValidException ex){
+    var errors = ex.getBindingResult().getFieldErrors().stream()
+            .map(f -> Map.of("field", f.getField(), "message", f.getDefaultMessage()))
+            .toList();
+    return ResponseEntity.badRequest().body(Map.of("validationErrors", errors));
+}
+```
+
+🎯 Rôle :
+Cette méthode s’occupe des erreurs déclenchées par la validation automatique des DTO (`@Valid`).
+
+🧩 Fonctionnement :
+- `MethodArgumentNotValidException` est levée quand un champ annoté `@NotBlank`, `@Min`, etc. ne respecte pas la contrainte.
+- `ex.getBindingResult().getFieldErrors()` renvoie la liste des champs invalides.
+- On transforme cette liste en JSON lisible avec les clés :
+  - `"field"` → le nom du champ concerné,
+  - `"message"` → le message d’erreur par défaut.
+
+💡 Exemple :
+Appel POST → `/api/requests`
+```json
+{ "section": "" }
+```
+→ La validation échoue à cause de `@NotBlank`.
+
+Réponse HTTP :
+```json
+{
+  "validationErrors": [
+    { "field": "section", "message": "must not be blank" }
+  ]
+}
+```
+
+💬 En clair :
+Le contrôleur ne reçoit même pas la requête, Spring bloque avant  
+et cette classe transforme l’erreur en un message clair pour le front.
+
+----------------------------------------------------------------------
+Les avantages de ce système
+----------------------------------------------------------------------
+✅ Lisibilité : les erreurs sont compréhensibles côté front (et uniformes).  
+✅ Simplicité : pas besoin de try/catch dans chaque contrôleur.  
+✅ Maintenabilité : si tu veux changer le format des erreurs, il suffit de modifier ici.  
+✅ Professionnalisme : les API REST modernes exposent toujours des erreurs structurées (souvent JSON).
+
+----------------------------------------------------------------------
+Résumé visuel
+----------------------------------------------------------------------
+| Exception interceptée | Statut HTTP | Corps JSON de la réponse |
+|------------------------|-------------|---------------------------|
+| IllegalStateException | 400 Bad Request | { "error": "Message d’erreur métier" } |
+| MethodArgumentNotValidException | 400 Bad Request | { "validationErrors": [ { "field": "...", "message": "..." } ] } |
+
+----------------------------------------------------------------------
+En résumé
+----------------------------------------------------------------------
+`RestExceptionHandler` est le **bouclier de sécurité** de ton API :
+- Il capte les exceptions non gérées dans les contrôleurs.
+- Il renvoie des réponses JSON claires, normalisées et utiles pour le front.
+- Il centralise toute la gestion des erreurs, ce qui rend le code propre et cohérent.
+
+======================================================================
+FIN DU DOCUMENT – À COLLER DANS WORD ET METTRE LA POLICE À 8 PT
+======================================================================
