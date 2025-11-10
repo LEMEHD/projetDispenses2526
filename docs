@@ -1,0 +1,839 @@
+
+======================================================================
+ISFCE – PROJET DISPENSES 25–26
+DOCUMENT DE RÉFÉRENCE (À COLLER DANS WORD – METTRE LA POLICE À 8 PT)
+======================================================================
+
+SECTION : Domain
+----------------------------------------------------------------------
+
+UEIsfce
+----------------------------------------------------------------------
+
+L’idée générale
+
+Cette classe, c’est la carte d’identité d’une UE de l’ISFCE (une Unité d’Enseignement). Elle décrit trois infos de base qu’on veut stocker proprement dans la base de données :
+
+un code court (ex: IPDB),
+
+un libellé (le nom de l’UE),
+
+le nombre d’ECTS (les crédits).
+
+Ligne par ligne, à quoi ça sert
+
+public class UEIsfce extends BaseEntity { … }
+On définit le modèle “UEIsfce”. Il hérite de BaseEntity, qui sert en général à centraliser des trucs communs (par ex. un identifiant, des dates de création/mise à jour). Concrètement : ta UE aura automatiquement un id, des champs d’audit, etc., sans que tu doives les répéter partout.
+
+Les annotations “Lombok” en haut (@Getter @Setter @ToString @NoArgsConstructor @AllArgsConstructor @Builder)
+Ce sont des raccourcis pour éviter d’écrire du code répétitif :
+
+@Getter/@Setter : génère les méthodes pour lire/modifier les champs.
+
+@ToString : pratique pour afficher l’objet en texte (utile pour les logs).
+
+@NoArgsConstructor / @AllArgsConstructor : crée un constructeur vide et un constructeur “complet”.
+
+@Builder : te permet de construire l’objet de façon fluide (style “briques LEGO”), ex. UEIsfce.builder().code("IPDB").libelle("Bases de données").ects(5).build().
+
+@Entity @Table(name = "ue_isfce")
+Ça dit juste : “Cette classe est enregistrée dans la base de données, dans une table appelée ue_isfce.”
+Donc chaque UEIsfce = une ligne dans cette table.
+
+private String code; avec @NotBlank et @Column(nullable = false, unique = true, length = 16)
+
+code est obligatoire (pas vide),
+
+unique (deux UE ne peuvent pas partager le même code, pour éviter les confusions),
+
+longueur max 16 (on se met une limite simple pour garder des codes courts et propres).
+En clair : on sanctuarise le code comme identifiant humain de l’UE (ex: IPDB).
+
+private String libelle; avec @NotBlank et @Column(nullable = false)
+Le nom de l’UE (ex: “Introduction aux bases de données”).
+Là aussi obligatoire : pas d’UE sans nom.
+
+private int ects; avec @Min(1) et @Column(nullable = false)
+Le nombre de crédits ECTS, obligatoire et au moins 1.
+Pas de cours à 0 crédit : c’est du bon sens métier, et on transforme ce bon sens en règle automatique.
+
+Pourquoi ces règles sont utiles
+
+Données propres : on évite les lignes vides, les doublons, les codes trop longs.
+
+Métiers respectés : les ECTS existent et sont positifs (ça reflète la réalité de l’école).
+
+Recherche et correspondance : le code unique aide à faire les liens avec les demandes de dispense (quand un étudiant déclare un cours d’une autre école, on cherche la bonne UE ISFCE à comparer).
+
+Comment cette classe s’insère dans l’appli
+
+Quand un étudiant consulte le catalogue : on liste des UEIsfce (code, nom, ECTS).
+
+Quand il dépose une demande de dispense : on compare ses cours à nos UEIsfce pour voir si ça colle en contenu et en ECTS.
+
+Quand la direction/le prof traite : ils s’appuient sur ces mêmes infos (et d’autres documents) pour valider/refuser la dispense et attribuer la note si besoin.
+
+Quand le secrétariat consulte : il retrouve les UE validées pour l’inscription.
+
+En résumé
+
+C’est le modèle “UE ISFCE” : code (unique), libellé, ECTS.
+
+Il est persisté en base (table ue_isfce).
+
+Il impose des règles simples (obligatoire, unique, ECTS ≥ 1) pour sécuriser la qualité des données.
+
+Il sert de brique centrale dans tous les écrans et processus qui manipulent les UE (catalogue, matching de dispenses, décisions).
+
+Référence contexte projet (UE, codes uniques, ECTS)
+
+
+----------------------------------------------------------------------
+
+ExemptionRequest
+----------------------------------------------------------------------
+
+L’idée générale
+
+Cette classe représente une demande de dispense qu’un étudiant fait à l’école.
+C’est “le dossier complet” envoyé par un étudiant pour demander à ne pas devoir suivre certains cours de sa section.
+
+Chaque objet ExemptionRequest, c’est une seule demande, qui contient :
+
+l’étudiant qui l’a faite,
+
+la section concernée (ex : Informatique),
+
+son statut (brouillon, envoyé, accepté, refusé…),
+
+les cours externes que l’étudiant veut faire valoir,
+
+les documents justificatifs qu’il a ajoutés,
+
+et les liens entre ces cours et les UE de l’ISFCE (les fameux “items de dispense”).
+
+C’est donc le point central du projet : tout tourne autour de cette classe.
+
+
+🧩 Ligne par ligne
+
+1️⃣ @Entity @Table(name = "exemption_request")
+
+On dit à Java : “cette classe correspond à une table dans la base de données, appelée exemption_request.”
+👉 Chaque demande enregistrée = une ligne dans cette table.
+
+2️⃣ private Etudiant etudiant;
+
+Cette ligne relie la demande à l’étudiant qui l’a déposée.
+
+@ManyToOne : une demande appartient à un seul étudiant,
+mais un étudiant peut avoir plusieurs demandes (relation “plusieurs vers un”).
+
+optional = false : impossible d’avoir une demande sans étudiant (logique).
+
+fetch = FetchType.LAZY : on ne charge pas toutes les infos de l’étudiant tant qu’on n’en a pas besoin (pour gagner du temps).
+
+💡 En clair : c’est le propriétaire du dossier.
+
+3️⃣ private String section;
+
+C’est la section de l’étudiant au moment de la demande (ex: Informatique, Gestion, etc.).
+
+@NotBlank et @Column(nullable = false) : il faut que ce champ soit rempli.
+On ne veut pas de demande “sans section”.
+
+4️⃣ private StatutDemande statut;
+
+C’est le statut actuel de la demande, par exemple :
+
+DRAFT → brouillon
+
+SUBMITTED → envoyée
+
+IN_REVIEW → en cours d’analyse
+
+ACCEPTED / REFUSED → décision prise
+
+@Enumerated(EnumType.STRING) : ça permet de stocker le mot (DRAFT, SUBMITTED, etc.) dans la base, plutôt qu’un chiffre.
+
+@Builder.Default : le statut est automatiquement “DRAFT” quand la demande est créée.
+
+💡 En clair : c’est la “phase” du dossier dans le processus administratif.
+
+5️⃣ private List<ExternalCourse> externalCourses
+
+Ce sont les cours de l’autre école que l’étudiant veut faire valoir.
+(ex : “Bases de données” suivie à l’UCL, 5 ECTS)
+
+@OneToMany(mappedBy = "request") : une demande peut contenir plusieurs cours externes.
+
+cascade = CascadeType.ALL : si on supprime la demande, tous les cours liés sont aussi supprimés.
+
+orphanRemoval = true : si un cours n’est plus rattaché à la demande, il est aussi supprimé (évite les “fantômes” dans la base).
+
+💡 En clair : les cours d’origine que l’étudiant fournit comme preuve
+
+6️⃣ private List<SupportingDocument> documents
+
+Ce sont les fichiers ajoutés par l’étudiant (PDF, relevé de notes, description du cours…).
+Même logique que pour les cours : ils appartiennent à la demande et sont supprimés avec elle.
+
+💡 En clair : les preuves jointes à la demande.
+
+7️⃣ private List<ExemptionItem> items
+
+Ce sont les liens concrets entre un cours externe et une UE ISFCE.
+Exemple :
+
+L’étudiant veut être dispensé de IPDB (Bases de données ISFCE)
+grâce à son cours externe “Database Systems (UCL)”
+
+Chaque ExemptionItem = un “couple” entre un cours externe et un cours ISFCE.
+
+💡 En clair : c’est le détail précis des demandes de dispense, ligne par ligne.
+
+8️⃣ Les “helpers” à la fin
+
+public void addExternalCourse(ExternalCourse c){ c.setRequest(this); externalCourses.add(c); }
+public void addDocument(SupportingDocument d){ d.setRequest(this); documents.add(d); }
+public void addItem(ExemptionItem i){ i.setRequest(this); items.add(i); }
+
+Ce sont des petites méthodes pratiques pour ajouter proprement un élément à la liste en gardant le lien correct.
+Elles évitent les oublis : à chaque ajout, on précise automatiquement que le cours/document/item appartient à cette demande.
+
+💡 En clair : des “raccourcis propres” pour ne pas casser les liens entre objets.
+
+🔁 En résumé
+
+👉 Cette classe représente une demande de dispense complète.
+Elle contient :
+
+Qui fait la demande (etudiant)
+
+Pour quelle section
+
+Son statut
+
+Les cours externes utilisés
+
+Les documents fournis
+
+Les correspondances entre cours externes et cours ISFCE
+
+Et tout est lié logiquement et automatiquement : si tu supprimes la demande, tout le contenu disparaît avec (cours, docs, items).
+
+🧠 En image mentale
+
+Imagine un dossier administratif numérique :
+
+Page 1 : Étudiant + Section + Statut
+
+Page 2 : Liste de ses cours antérieurs
+
+Page 3 : Les fichiers qu’il joint
+
+Page 4 : Les demandes de dispense cours par cours
+
+→ Ce dossier complet, c’est exactement ExemptionRequest
+
+
+----------------------------------------------------------------------
+
+ExternalCourse
+----------------------------------------------------------------------
+
+L’idée générale
+
+Chaque objet ExternalCourse représente un seul cours suivi ailleurs.
+Exemples :
+
+“Algorithmique et programmation” à l’ULB
+
+“Bases de données” à la HE2B
+
+👉 C’est une des “preuves” dans le dossier de dispense.
+
+🧩 Ligne par ligne
+
+1️⃣ @Entity @Table(name = "external_course", indexes = @Index(columnList = "etablissement,code"))
+
+Cette classe correspond à une table “external_course” dans la base de données.
+
+Chaque ligne = un cours externe.
+
+L’index sur (etablissement, code) permet de retrouver rapidement un cours donné d’un établissement précis (utile si deux écoles ont un cours avec le même nom).
+
+💡 En clair : ça améliore les recherches et garantit une structure propre.
+
+2️⃣ private ExemptionRequest request;
+
+Ce champ indique à quelle demande de dispense appartient ce cours externe.
+
+@ManyToOne(optional = false) : un cours externe est toujours rattaché à une seule demande, mais une demande peut en contenir plusieurs.
+
+fetch = FetchType.LAZY : on ne charge pas tout le dossier complet tant qu’on n’en a pas besoin.
+
+@ToString.Exclude : juste pour éviter d’afficher tout le contenu du dossier quand on veut afficher le cours (ça éviterait des boucles infinies).
+
+💡 En clair : ce cours fait partie du dossier de dispense de l’étudiant.
+
+3️⃣ private String etablissement;
+
+C’est le nom de l’école d’origine du cours.
+Exemples : ULB, HE2B, UCL, etc.
+
+@NotBlank et @Column(nullable = false) : ce champ est obligatoire.
+
+💡 En clair : d’où vient le cours.
+
+4️⃣ private String code;
+
+C’est le code officiel du cours dans l’autre école.
+Exemple : INFO1234, BD101, etc.
+
+@NotBlank, @Column(nullable = false, length = 32) : le champ est obligatoire, et limité à 32 caractères.
+
+💡 En clair : l’identifiant du cours externe (utile pour les correspondances).
+
+
+5️⃣ private String libelle;
+
+Le nom complet du cours (ex : Introduction aux bases de données).
+
+@NotBlank → il faut que ce soit rempli.
+
+@Column(nullable = false) → obligatoire aussi en base.
+
+💡 En clair : le titre du cours.
+
+6️⃣ private int ects;
+
+Le nombre de crédits ECTS de ce cours externe.
+
+@Min(1) : au moins 1 ECTS (on ne veut pas de cours “fantôme”).
+
+@Column(nullable = false) : obligatoire.
+
+💡 En clair : le poids académique du cours (utile pour comparer à nos UE ISFCE).
+
+7️⃣ private String urlProgramme;
+
+C’est un lien vers la description officielle du cours, souvent un PDF ou une page web sur le site de l’école d’origine.
+Pas obligatoire, mais très utile pour les enseignants qui vérifient la correspondance.
+
+💡 En clair : le lien vers la fiche descriptive du cours externe.
+
+🔁 En résumé
+
+👉 Cette classe décrit un cours externe que l’étudiant veut utiliser pour justifier une dispense.
+
+Elle contient :
+
++------------------+-----------------------------------------------+
+| Champ            | Rôle                                          |
++------------------+-----------------------------------------------+
+| etablissement    | Nom de l’école d’origine                      |
+| code             | Code du cours dans cette école                 |
+| libelle          | Nom du cours                                   |
+| ects             | Nombre de crédits                              |
+| urlProgramme     | Lien vers le programme officiel                |
+| request          | La demande de dispense à laquelle il appartient|
++------------------+-----------------------------------------------+
+
+
+🧠 En image mentale
+
+Imagine que l’étudiant dit :
+
+“J’ai déjà suivi Algorithmique à l’ULB, voici le lien vers le programme, et ça valait 5 crédits.”
+
+Cette déclaration devient un ExternalCourse dans son dossier de dispense (ExemptionRequest).
+S’il a suivi trois cours dans son ancienne école, il aura trois objets ExternalCourse liés à sa demande.
+
+💡 En résumé simple
+
+But : représenter un cours suivi ailleurs.
+
+Utilité : sert de preuve de connaissance dans le dossier de dispense.
+
+Contenu : école, code, libellé, crédits, lien.
+
+Relation : fait partie d’une demande complète (ExemptionRequest).
+
+En gros :
+➡️ ExemptionRequest = le dossier complet,
+➡️ ExternalCourse = chaque cours externe cité dans ce dossier.
+
+
+----------------------------------------------------------------------
+
+SupportingDocument
+----------------------------------------------------------------------
+
+L’idée générale
+
+Chaque objet SupportingDocument représente un fichier ou une pièce jointe que l’étudiant ajoute dans son dossier de dispense.
+Exemples :
+
+un relevé de notes,
+
+un syllabus ou programme de cours,
+
+une attestation officielle de réussite,
+
+ou tout autre document qui appuie sa demande.
+
+👉 En gros, ce sont les preuves que l’étudiant dépose pour montrer qu’il mérite la dispense.
+
+
+🧩 Ligne par ligne
+
+1️⃣ @Entity @Table(name = "supporting_document")
+
+Cette classe correspond à une table “supporting_document” dans la base de données.
+Chaque ligne = un document ajouté dans une demande.
+
+💡 En clair : c’est la “liste des fichiers déposés” par les étudiants.
+
+
+2️⃣ private ExemptionRequest request;
+
+Ce champ relie le document à la demande de dispense à laquelle il appartient.
+
+@ManyToOne(optional = false) :
+→ chaque document appartient à une seule demande,
+→ mais une demande peut avoir plusieurs documents.
+
+fetch = FetchType.LAZY : on ne charge pas tout le dossier tant qu’on ne consulte pas le document.
+
+@ToString.Exclude : pour éviter d’afficher tout le contenu du dossier quand on affiche un document (utile pour les logs et éviter les boucles infinies).
+
+💡 En clair : ce fichier fait partie d’un dossier précis.
+
+
+3️⃣ private TypeDocument type;
+
+C’est le type de document, représenté par une liste prédéfinie (une énumération).
+Par exemple, le TypeDocument pourrait contenir :
+
+SYLLABUS → la description du cours,
+
+RELEVE_NOTES → le relevé de notes,
+
+ATTESTATION → une preuve officielle,
+
+AUTRE → tout autre document.
+
+@Enumerated(EnumType.STRING) : on stocke le type sous forme de texte clair (“SYLLABUS”) plutôt qu’un chiffre.
+
+@Column(nullable = false) : le type est obligatoire.
+
+💡 En clair : ça indique la nature du document.
+
+
+4️⃣ private String urlStockage;
+
+C’est le chemin où le document est enregistré (dans le serveur, ou un lien vers le cloud).
+
+@NotBlank : on ne veut pas de lien vide.
+
+@Column(nullable = false) : champ obligatoire.
+
+💡 En clair : c’est l’adresse du fichier pour pouvoir le retrouver ou le télécharger.
+
+
+🔁 En résumé
+
+👉 Cette classe décrit un document lié à une demande de dispense.
+
++------------+-----------------------------------------------------------+
+| Champ      | Rôle                                                      |
++------------+-----------------------------------------------------------+
+| request    | Indique à quelle demande le document appartient           |
+| type       | Type de document (relevé, syllabus, attestation...)       |
+| urlStockage| Lien/chemin du fichier stocké                             |
++------------+-----------------------------------------------------------+
+
+
+🧠 En image mentale
+
+Imagine que l’étudiant dépose une demande dans le portail :
+
+Il remplit ses infos.
+
+Il ajoute un relevé de notes en PDF.
+
+Puis un syllabus de son ancien cours.
+
+Résultat :
+
+Sa demande (ExemptionRequest) contient 2 objets SupportingDocument,
+→ un de type RELEVE_NOTES
+→ un de type SYLLABUS,
+chacun avec son lien de stockage vers le fichier correspondant.
+
+
+💡 En résumé simple
+
+But : représenter un document justificatif lié à une demande.
+
+Utilité : prouver que le cours externe mérite la dispense.
+
+Contenu : le type de document et son chemin de stockage.
+
+Relation : appartient toujours à une demande complète (ExemptionRequest).
+
+
+👉 En gros :
+
+ExemptionRequest = le dossier complet,
+
+ExternalCourse = les cours externes,
+
+SupportingDocument = les preuves déposées pour appuyer la demande.
+
+
+----------------------------------------------------------------------
+
+ExemptionItem
+----------------------------------------------------------------------
+
+L’idée générale
+
+Chaque objet ExemptionItem représente une demande de dispense pour une UE précise de l’ISFCE.
+
+Autrement dit :
+
+“Je veux être dispensé de IPDB – Introduction aux bases de données (ISFCE)
+grâce à mon cours Database Systems (UCL).”
+
+👉 Cet objet décrit ce lien concret entre :
+
+la demande complète (ExemptionRequest),
+
+le cours ISFCE concerné (UEIsfce),
+
+et les décisions / informations associées (est-ce que les crédits correspondent ? est-ce que la dispense est accordée ? quelle note ?).
+
+C’est la “fiche ligne par ligne” d’une demande.
+
+
+🧱 Ligne par ligne
+
+1️⃣ @Entity @Table(name = "exemption_item")
+
+Cette classe correspond à la table exemption_item dans la base de données.
+Chaque ligne = une demande de dispense pour un cours ISFCE précis.
+
+💡 En clair : c’est le détail individuel du dossier.
+
+
+2️⃣ private ExemptionRequest request;
+
+C’est la demande principale à laquelle appartient cet item.
+
+@ManyToOne(optional = false) : un item appartient toujours à une seule demande.
+
+fetch = FetchType.LAZY : on charge les infos de la demande seulement si nécessaire.
+
+@ToString.Exclude : évite les boucles infinies quand on affiche l’objet.
+
+💡 En clair : ce petit item fait partie d’un grand dossier de dispense.
+
+
+3️⃣ private UEIsfce ue;
+
+C’est le cours ISFCE pour lequel l’étudiant demande la dispense.
+
+@ManyToOne(optional = false) : chaque item concerne une seule UE.
+
+fetch = FetchType.EAGER : ici, on charge directement les infos du cours ISFCE, car elles sont souvent nécessaires à l’affichage ou à la décision.
+
+💡 En clair : le cours de l’ISFCE visé par la dispense.
+
+Exemple :
+UE = IPDB – Introduction aux bases de données
+
+
+4️⃣ private boolean totalEctsMatches;
+
+Ce champ indique si le nombre total de crédits ECTS des cours externes utilisés correspond à celui de l’UE ISFCE visée.
+
+@Builder.Default = false → par défaut, on part du principe que ça ne correspond pas encore.
+
+@Column(nullable = false) : obligatoire.
+
+💡 En clair : c’est un petit indicateur automatique pour dire si les crédits sont “équivalents”.
+
+Exemple :
+UE ISFCE = 5 ECTS
+Cours externes fournis = 5 ECTS → ✅ totalEctsMatches = true
+
+
+5️⃣ private DecisionItem decision;
+
+C’est la décision administrative concernant cette demande de dispense précise.
+
+@Enumerated(EnumType.STRING) : stocke le mot (“PENDING”, “ACCEPTED”, “REFUSED”, etc.) au lieu d’un chiffre.
+
+@Builder.Default : par défaut, chaque demande est marquée comme PENDING (en attente).
+
+@Column(nullable = false) : obligatoire.
+
+💡 En clair : c’est le verdict pour cette UE.
+
+Exemples :
+
+PENDING → en attente d’évaluation
+
+ACCEPTED → dispense accordée
+
+REFUSED → refusée
+
+
+6️⃣ private Integer noteSur20;
+
+C’est la note attribuée sur 20, si une note doit être reportée (dans certains cas de dispense partielle ou d’équivalence notée).
+
+Integer (et pas int) pour qu’il puisse être vide (null) si la note n’est pas applicable.
+
+💡 En clair : c’est la note associée à la dispense, si l’école en met une.
+
+
+🔁 En résumé
+
+👉 Cette classe représente une “ligne de décision” dans la demande de dispense.
+
++-------------------+-----------------------------------------------------------+
+| Champ             | Rôle                                                      |
++-------------------+-----------------------------------------------------------+
+| request           | Le dossier complet auquel cette ligne appartient          |
+| ue                | L’UE ISFCE pour laquelle la dispense est demandée         |
+| totalEctsMatches  | Est-ce que les crédits externes couvrent bien l’UE ?      |
+| decision          | Décision finale : en attente, acceptée, refusée           |
+| noteSur20         | Note éventuelle si équivalence notée                      |
++-------------------+-----------------------------------------------------------+
+
+
+🧠 En image mentale
+
+Imagine que l’étudiant a une demande avec 3 cours ISFCE pour lesquels il veut des dispenses.
+Sa ExemptionRequest contiendra donc 3 ExemptionItem :
+
+IPDB – Bases de données → en attente
+
+PROG1 – Programmation 1 → acceptée
+
+MATH1 – Mathématiques → refusée
+
+Chaque item est une ligne du tableau des décisions.
+
+
+💡 En résumé simple
+
+But : représenter une demande de dispense pour un cours précis.
+
+Utilité : suivre la décision et les comparaisons de crédits.
+
+Contenu : le cours visé, l’état de la décision, si les crédits correspondent, et la note éventuelle.
+
+Relation : fait partie d’un dossier global (ExemptionRequest).
+
+
+👉 En résumé visuel :
+
+ExemptionRequest = le dossier complet
+
+ExternalCourse = les cours externes utilisés comme preuves
+
+SupportingDocument = les fichiers joints
+
+ExemptionItem = les demandes de dispense cours par cours
+
+UEIsfce = les cours officiels ISFCE visés par ces demandes
+
+
+----------------------------------------------------------------------
+
+SECTION : Repositories
+----------------------------------------------------------------------
+
+D’abord, c’est quoi un “repository” ?
+
+Un Repository, c’est une porte d’entrée vers la base de données.
+C’est là que tu vas :
+
+enregistrer un objet (ex: un étudiant),
+
+chercher des données (ex: toutes les demandes d’un étudiant),
+
+supprimer ou mettre à jour des lignes, etc.
+
+👉 En gros, c’est l’intermédiaire entre ton code métier (les classes domain) et la base SQL.
+
+Et grâce à Spring Data JPA, tu n’as même pas besoin d’écrire de requêtes :
+Spring le fait pour toi automatiquement.
+
+
+📁 Le package be.isfce.dispenses.repository
+
+Ce package contient une interface par type d’objet à sauvegarder ou à lire.
+Chaque interface hérite de JpaRepository, qui donne toutes les fonctions de base.
+
+1️⃣ EtudiantRepository
+
+public interface EtudiantRepository extends JpaRepository<Etudiant, UUID> {
+   Optional<Etudiant> findByEmail(String email);
+}
+
+💡 Sert à gérer les étudiants.
+
+JpaRepository<Etudiant, UUID> → gère les enregistrements d’étudiants identifiés par un UUID.
+
+La méthode findByEmail() est une recherche personnalisée, que Spring comprend tout seul :
+→ il va générer une requête du style
+SELECT * FROM etudiant WHERE email = ?.
+
+👉 Exemple d’usage :
+
+Le système veut vérifier si un étudiant existe déjà avant de créer un compte.
+
+
+2️⃣ UEIsfceRepository
+
+public interface UEIsfceRepository extends JpaRepository<UEIsfce, UUID> {
+   Optional<UEIsfce> findByCode(String code);
+}
+
+💡 Sert à chercher une UE ISFCE via son code (ex: “IPDB”).
+Même logique : Spring génère tout seul la requête.
+Très pratique quand on compare un cours externe à une UE ISFCE.
+
+
+3️⃣ ExemptionRequestRepository
+
+public interface ExemptionRequestRepository extends JpaRepository<ExemptionRequest, UUID> {
+   List<ExemptionRequest> findByEtudiantIdOrderByCreatedAtDesc(UUID etudiantId);
+}
+
+💡 Sert à récupérer toutes les demandes d’un étudiant,
+triées par date de création décroissante (de la plus récente à la plus ancienne).
+Encore une fois, Spring comprend tout seul la logique grâce au nom de la méthode.
+
+👉 Exemple : quand un étudiant se connecte à son espace,
+le système affiche toutes ses demandes avec les plus récentes en premier.
+
+
+4️⃣ ExternalCourseRepository
+
+public interface ExternalCourseRepository extends JpaRepository<ExternalCourse, UUID> { }
+
+💡 Rien de spécial ici, juste les fonctions de base :
+
+sauvegarder un cours externe,
+
+le supprimer,
+
+le retrouver par son identifiant.
+
+
+5️⃣ SupportingDocumentRepository
+
+public interface SupportingDocumentRepository extends JpaRepository<SupportingDocument, UUID> { }
+
+💡 Gère les documents (fichiers).
+Même chose : pas de méthode spécifique pour l’instant.
+
+
+6️⃣ ExemptionItemRepository
+
+public interface ExemptionItemRepository extends JpaRepository<ExemptionItem, UUID> { }
+
+💡 Sert à gérer chaque item de dispense (chaque “ligne” de décision).
+
+
+🧠 Pourquoi cette structure ?
+
+L’idée est de garder une interface claire et isolée pour chaque type d’objet.
+Avantages :
+
+✅ Lisibilité : on sait tout de suite où trouver le code qui gère les données d’un type donné (ex: les UE → UEIsfceRepository).
+
+✅ Évolutivité : si demain tu veux ajouter une recherche spécifique (ex: “toutes les demandes en attente”), tu l’ajoutes uniquement dans le bon Repository.
+
+✅ Organisation claire : c’est une bonne pratique standard dans les projets Spring Boot.
+
+En résumé :
+chaque classe du package domain a son repository dédié dans repository.
+
+
+🧱 Et le projet Thymeleaf avec le package dao, c’est quoi la différence ?
+
+Dans ton projet Thymeleaf, tu as quelque chose comme :
+
+package org.isfce.pid.dao;
+
+import org.isfce.pid.model.Cours;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface ICoursJpaDao extends JpaRepository<Cours, String>{ }
+
+👉 Oui, c’est la même logique.
+La seule différence, c’est le nom du package et le style de nommage.
+
++--------------------------+--------------------+
+| Ton projet API           | Projet Thymeleaf   |
++--------------------------+--------------------+
+| repository               | dao                |
+| UEIsfceRepository        | ICoursJpaDao       |
+| JpaRepository<UEIsfce, UUID> | JpaRepository<Cours, String> |
++--------------------------+--------------------+
+
+Donc :
+
+Les deux font exactement la même chose : ils servent à interagir avec la base via JPA.
+
+DAO (Data Access Object) est le terme plus ancien / générique.
+
+Repository est le terme moderne, préféré dans les projets Spring récents (et plus clair dans une logique DDD – Domain Driven Design).
+
+💬 En résumé :
+
+“DAO” et “Repository” désignent la même idée,
+mais “Repository” est aujourd’hui la convention la plus utilisée et plus cohérente avec Spring Data.
+
+
+🧩 Pourquoi toi, tu as plusieurs repositories alors que le projet Thymeleaf n’en a qu’un ?
+
+Parce que dans le projet Thymeleaf, il n’y a qu’une seule entité importante : Cours.
+Ici, ton application de dispenses a plusieurs types d’objets (étudiant, UE, demande, document, etc.),
+donc on crée un repository pour chacun.
+
+C’est plus structuré, plus évolutif, et plus professionnel.
+
+
+✅ En résumé simple
+
++------------------------+----------------------------------------------+----------------------------+
+| Ce que c’est           | Rôle                                         | Exemple                    |
++------------------------+----------------------------------------------+----------------------------+
+| Repository             | Sert à lire et enregistrer des objets en base| EtudiantRepository         |
+| JpaRepository          | Fournit toutes les fonctions CRUD de base    | .save(), .findAll(), .deleteById() |
+| Méthodes personnalisées| Génèrent automatiquement des requêtes SQL    | findByEmail(), findByCode() |
+| Différence avec DAO    | C’est juste une question de vocabulaire      | DAO = ancien terme,        |
+|                        | moderne                                      | Repository = actuel        |
++------------------------+----------------------------------------------+----------------------------+
+
+
+💡 En clair :
+
+Le projet Thymeleaf → petit projet, 1 seule entité, 1 DAO.
+
+Ton projet Dispenses → appli plus complexe → 1 Repository par entité.
+
+Les deux font exactement la même chose, mais ta version est plus propre et mieux organisée pour un vrai projet complet.
+
+
+----------------------------------------------------------------------
+FIN DU DOCUMENT – COLLER DANS WORD ET RÉGLER LA POLICE À 8 PT
+----------------------------------------------------------------------
