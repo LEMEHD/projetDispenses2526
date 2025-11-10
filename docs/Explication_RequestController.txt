@@ -1,0 +1,191 @@
+
+======================================================================
+ISFCE – PROJET DISPENSES 25–26
+DOCUMENT : EXPLICATION DE LA CLASSE RequestController
+======================================================================
+
+L’idée générale
+----------------------------------------------------------------------
+Cette classe représente le point d’entrée de l’API côté étudiant.
+C’est elle qui reçoit les requêtes HTTP du front-end et qui appelle le service métier ExemptionService pour exécuter la logique.
+
+En clair :
+➡️ Le contrôleur traduit les requêtes REST (POST, GET, etc.) en actions concrètes côté serveur.
+➡️ Il renvoie des objets (souvent en JSON) comme réponse au front.
+
+Son rôle : permettre à un étudiant de :
+- créer une demande de dispense (en brouillon),
+- ajouter des cours externes à cette demande,
+- ajouter des documents,
+- soumettre la demande,
+- consulter ses demandes existantes,
+- lister les cours officiels de l’ISFCE (UE).
+
+----------------------------------------------------------------------
+Les annotations principales
+----------------------------------------------------------------------
+@RestController  
+→ Indique que cette classe gère des endpoints REST.
+Spring va automatiquement convertir les retours en JSON.
+
+@RequestMapping("/api")  
+→ Tous les chemins de ce contrôleur commenceront par /api.
+Exemple : /api/requests, /api/requests/{id}, /api/ue.
+
+@RequiredArgsConstructor  
+→ Crée automatiquement un constructeur injectant les dépendances final (ici ExemptionService).
+Pas besoin de @Autowired.
+
+----------------------------------------------------------------------
+Les dépendances
+----------------------------------------------------------------------
+private final ExemptionService svc;
+→ Le contrôleur utilise ExemptionService pour appliquer la logique métier.
+Il ne contient aucune règle métier lui-même : il délègue tout au service.
+
+----------------------------------------------------------------------
+La simulation d’authentification
+----------------------------------------------------------------------
+private String currentEmail(Authentication auth) { return auth.getName(); }
+
+→ En attendant un vrai système d’authentification (comme Keycloak),
+on simule l’utilisateur connecté en prenant son “username” comme email.
+Quand tu fais un appel à l’API avec HTTP Basic, ton “username” = ton email.
+
+----------------------------------------------------------------------
+Les différents endpoints REST
+----------------------------------------------------------------------
+
+1️⃣ POST /api/requests
+----------------------------------------------------------------------
+Méthode : create()
+
+Rôle : créer une nouvelle demande de dispense en brouillon.
+
+Étapes :
+1. Récupère l’email de l’utilisateur via currentEmail(auth).
+2. Appelle svc.createDraft(email, dto.section()).
+3. Retourne la demande créée avec un statut 201 Created et un header Location.
+
+Exemple d’appel :
+POST → /api/requests
+{
+  "section": "Informatique"
+}
+
+----------------------------------------------------------------------
+2️⃣ POST /api/requests/{id}/courses
+----------------------------------------------------------------------
+Méthode : addCourse()
+
+Rôle : ajouter un cours externe à une demande déjà créée.
+
+Étapes :
+1. Récupère l’id de la demande (@PathVariable UUID id).
+2. Lit le corps JSON sous forme de AddCourseDTO.
+3. Appelle svc.addExternalCourse(...) avec les infos du DTO.
+4. Retourne le ExternalCourse créé.
+
+Exemple d’appel :
+POST → /api/requests/8e0f.../courses
+{
+  "etablissement": "HE2B",
+  "code": "BD101",
+  "libelle": "Bases de données",
+  "ects": 5,
+  "urlProgramme": "https://he2b.be/programmes/bd101.pdf"
+}
+
+----------------------------------------------------------------------
+3️⃣ POST /api/requests/{id}/documents
+----------------------------------------------------------------------
+Méthode : addDoc()
+
+Rôle : ajouter un document joint à une demande.
+
+Étapes :
+1. Convertit le type reçu (dto.type()) en majuscules et en TypeDocument (enum).
+2. Appelle svc.addDocument(id, type, dto.url()).
+3. Retourne le SupportingDocument créé.
+
+Exemple :
+POST → /api/requests/8e0f.../documents
+{
+  "type": "BULLETIN",
+  "url": "https://serveur/uploads/bulletin123.pdf"
+}
+
+----------------------------------------------------------------------
+4️⃣ POST /api/requests/{id}/submit
+----------------------------------------------------------------------
+Méthode : submit()
+
+Rôle : soumettre une demande en brouillon.
+Le service vérifie que les cours et documents sont bien ajoutés, puis change le statut en SUBMITTED.
+
+Étapes :
+1. Récupère la demande.
+2. Appelle svc.submit(id).
+3. Retourne la demande mise à jour (avec statut modifié).
+
+----------------------------------------------------------------------
+5️⃣ GET /api/requests/mine
+----------------------------------------------------------------------
+Méthode : mine()
+
+Rôle : récupérer toutes les demandes de l’étudiant connecté.
+
+Étapes :
+1. Récupère l’email courant.
+2. Appelle svc.myRequests(email).
+3. Retourne une liste de demandes triées par date.
+
+Exemple :
+GET → /api/requests/mine
+Réponse : tableau JSON de plusieurs ExemptionRequest.
+
+----------------------------------------------------------------------
+6️⃣ GET /api/requests/{id}
+----------------------------------------------------------------------
+Méthode : one()
+
+Rôle : obtenir une seule demande précise (vue détaillée).
+→ Appelle svc.get(id) et retourne l’objet ExemptionRequest correspondant.
+
+----------------------------------------------------------------------
+7️⃣ GET /api/ue
+----------------------------------------------------------------------
+Méthode : allUE()
+
+Rôle : renvoyer la liste de toutes les UE ISFCE (catalogue des cours).
+→ Appelle svc.listUE() et retourne la liste de UEIsfce.
+
+----------------------------------------------------------------------
+Les points forts de ce contrôleur
+----------------------------------------------------------------------
+✅ Lisible : chaque route correspond à une action claire (REST bien structuré).
+✅ Séparé du métier : le contrôleur délègue toute la logique au service.
+✅ Validation automatique : les @Valid sur les DTO vérifient les données d’entrée.
+✅ Réutilisable : ResponseEntity gère proprement les réponses HTTP.
+
+----------------------------------------------------------------------
+En résumé
+----------------------------------------------------------------------
+RequestController est la porte d’entrée de l’application côté étudiant.
+
+| Endpoint | Méthode | Action | Appel au service |
+|-----------|----------|--------|------------------|
+| POST /api/requests | Crée une demande | createDraft |
+| POST /api/requests/{id}/courses | Ajoute un cours externe | addExternalCourse |
+| POST /api/requests/{id}/documents | Ajoute un document joint | addDocument |
+| POST /api/requests/{id}/submit | Soumet la demande | submit |
+| GET /api/requests/mine | Liste mes demandes | myRequests |
+| GET /api/requests/{id} | Voir une demande précise | get |
+| GET /api/ue | Lister toutes les UE ISFCE | listUE |
+
+Ce contrôleur relie directement les appels HTTP du front aux méthodes du service ExemptionService,
+et garantit un flux clair et cohérent entre interface, logique et base de données.
+
+======================================================================
+FIN DU DOCUMENT – À COLLER DANS WORD ET METTRE LA POLICE À 8 PT
+======================================================================
