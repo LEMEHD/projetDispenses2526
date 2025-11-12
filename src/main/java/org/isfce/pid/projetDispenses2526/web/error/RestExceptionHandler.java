@@ -1,4 +1,4 @@
-package org.isfce.pid.projetDispenses2526.web.error.RestExceptionHandler;
+package org.isfce.pid.projetDispenses2526.web.error;
 
 import org.springframework.http.*;
 import org.springframework.web.bind.MethodArgumentNotValidException;

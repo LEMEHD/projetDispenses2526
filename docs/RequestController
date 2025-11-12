@@ -173,15 +173,15 @@ En résumé
 ----------------------------------------------------------------------
 RequestController est la porte d’entrée de l’application côté étudiant.
 
-| Endpoint | Méthode | Action | Appel au service |
-|-----------|----------|--------|------------------|
-| POST /api/requests | Crée une demande | createDraft |
-| POST /api/requests/{id}/courses | Ajoute un cours externe | addExternalCourse |
-| POST /api/requests/{id}/documents | Ajoute un document joint | addDocument |
-| POST /api/requests/{id}/submit | Soumet la demande | submit |
-| GET /api/requests/mine | Liste mes demandes | myRequests |
-| GET /api/requests/{id} | Voir une demande précise | get |
-| GET /api/ue | Lister toutes les UE ISFCE | listUE |
+| Endpoint                          | Méthode                    | Action            | Appel au service |
+|-----------------------------------|----------------------------|-------------------|------------------|
+| POST /api/requests                | Crée une demande           | createDraft       |
+| POST /api/requests/{id}/courses   | Ajoute un cours externe    | addExternalCourse |
+| POST /api/requests/{id}/documents | Ajoute un document joint   | addDocument       |
+| POST /api/requests/{id}/submit    | Soumet la demande          | submit            |
+| GET /api/requests/mine            | Liste mes demandes         | myRequests        |
+| GET /api/requests/{id}            | Voir une demande précise   | get               |
+| GET /api/ue                       | Lister toutes les UE ISFCE | listUE            |
 
 Ce contrôleur relie directement les appels HTTP du front aux méthodes du service ExemptionService,
 et garantit un flux clair et cohérent entre interface, logique et base de données.

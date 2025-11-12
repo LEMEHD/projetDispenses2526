@@ -74,9 +74,9 @@ Rôle :
 C’est l’objet qu’un étudiant envoie quand il crée une nouvelle demande de dispense.
 
 Contenu :
-| Champ | Type | Validation | Rôle |
-|--------|------|-------------|------|
-| section | String | @NotBlank | La section de l’étudiant (ex : “Informatique”, “Gestion”). |
+| Champ   | Type   | Validation  | Rôle                                                       |
+|---------|--------|-------------|------------------------------------------------------------|
+| section | String | @NotBlank   | La section de l’étudiant (ex : “Informatique”, “Gestion”). |
 
 Exemple JSON :
 {
@@ -98,13 +98,13 @@ Rôle :
 Représente les informations d’un cours externe que l’étudiant ajoute à sa demande de dispense.
 
 Contenu :
-| Champ | Type | Validation | Rôle |
-|--------|------|-------------|------|
-| etablissement | String | @NotBlank | Le nom de l’école d’origine (ex : ULB, HE2B). |
-| code | String | @NotBlank | Le code du cours externe (ex : BD101). |
-| libelle | String | @NotBlank | Le nom complet du cours. |
-| ects | int | @Min(1) | Nombre de crédits ECTS (minimum 1). |
-| urlProgramme | String | optionnel | Lien vers la fiche ou le syllabus. |
+| Champ         | Type   | Validation | Rôle                                          |
+|---------------|--------|------------|-----------------------------------------------|
+| etablissement | String | @NotBlank  | Le nom de l’école d’origine (ex : ULB, HE2B). |
+| code          | String | @NotBlank  | Le code du cours externe (ex : BD101).        |
+| libelle       | String | @NotBlank  | Le nom complet du cours.                      |
+| ects          | int    | @Min(1)    | Nombre de crédits ECTS (minimum 1).           |
+| urlProgramme  | String | optionnel  | Lien vers la fiche ou le syllabus.            |
 
 Exemple JSON :
 {
@@ -154,11 +154,11 @@ Si une donnée est invalide, Spring renvoie automatiquement une erreur 400 (Bad 
 ----------------------------------------------------------------------
 🧩 En résumé
 ----------------------------------------------------------------------
-| DTO | Sert à… | Données reçues | Exemple JSON |
-|------|----------|----------------|---------------|
-| CreateRequestDTO | Créer une nouvelle demande | Section | { "section": "Informatique" } |
-| AddCourseDTO | Ajouter un cours externe | Établissement, code, libellé, ects, url | { "etablissement": "HE2B", "code": "BD101", "libelle": "Bases de données", "ects": 5 } |
-| AddDocumentDTO | Ajouter un document | Type, url | { "type": "BULLETIN", "url": "..." } |
+| DTO              | Sert à…                    | Données reçues                          | Exemple JSON                                                                           |
+|------------------|----------------------------|-----------------------------------------|----------------------------------------------------------------------------------------|
+| CreateRequestDTO | Créer une nouvelle demande | Section                                 | { "section": "Informatique" }                                                          |
+| AddCourseDTO     | Ajouter un cours externe   | Établissement, code, libellé, ects, url | { "etablissement": "HE2B", "code": "BD101", "libelle": "Bases de données", "ects": 5 } |
+| AddDocumentDTO   | Ajouter un document        | Type, url                               | { "type": "BULLETIN", "url": "..." }                                                   |
 
 ----------------------------------------------------------------------
 ✅ En résumé simple

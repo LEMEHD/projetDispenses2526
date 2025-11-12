@@ -1,4 +1,4 @@
-package org.isfce.pid.projetDispenses2526.web.RequestController;
+package org.isfce.pid.projetDispenses2526.web;
 
 import org.isfce.pid.projetDispenses2526.domain.*;
 import org.isfce.pid.projetDispenses2526.service.ExemptionService;
