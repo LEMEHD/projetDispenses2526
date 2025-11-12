@@ -1,0 +1,162 @@
+
+======================================================================
+ISFCE – PROJET DISPENSES 25–26
+DOCUMENT : EXPLICATION DE LA CLASSE SeedData
+======================================================================
+
+🌱 L’idée générale
+----------------------------------------------------------------------
+La classe SeedData sert à initialiser automatiquement des données de base dans l’application au démarrage.
+On appelle ça du “seeding” (ensemencement), c’est-à-dire : “mettre un petit jeu de données de départ pour tester l’application”.
+
+👉 Ici, elle :
+- crée quelques UE ISFCE de base (cours officiels),
+- et ajoute quelques règles de correspondance entre des cours externes et les UE de l’école (via ExemptionService).
+
+Bref, c’est ton petit script d’initialisation automatique, lancé au démarrage de Spring Boot.
+
+----------------------------------------------------------------------
+⚙️ Les annotations et le rôle de la classe
+----------------------------------------------------------------------
+@Configuration
+public class SeedData {
+
+@Configuration indique à Spring que cette classe contient des beans à instancier au démarrage.
+→ Autrement dit : c’est une classe de configuration, pas une entité métier.
+
+----------------------------------------------------------------------
+🌾 Le cœur du fichier : le @Bean ApplicationRunner
+----------------------------------------------------------------------
+@Bean
+ApplicationRunner runner(UEIsfceRepository ueRepo, ExemptionService svc) {
+    return args -> {
+        ...
+    };
+}
+
+### Qu’est-ce que ApplicationRunner ?
+C’est une fonction spéciale fournie par Spring Boot :
+tout ce qui est défini dans un ApplicationRunner s’exécute automatiquement juste après le démarrage de l’application, quand tout est prêt (contexte Spring, base de données, services, etc.).
+
+En clair :
+“Quand l’app démarre, exécute ce bout de code une fois.”
+
+----------------------------------------------------------------------
+🧱 Le contenu du runner
+----------------------------------------------------------------------
+if (ueRepo.count() == 0) {
+    ueRepo.save(UEIsfce.builder().code("IPDB").libelle("Intro Prog & DB").ects(5).build());
+    ueRepo.save(UEIsfce.builder().code("ALG1").libelle("Algorithmes 1").ects(4).build());
+    ueRepo.save(UEIsfce.builder().code("WEB1").libelle("Web 1").ects(5).build());
+}
+
+💡 Rôle :
+- Vérifie si la table ue_isfce est vide (count() == 0).
+- Si oui, il ajoute trois UE de base :
+  - IPDB → Intro Prog & DB (5 ECTS)
+  - ALG1 → Algorithmes 1 (4 ECTS)
+  - WEB1 → Web 1 (5 ECTS)
+
+➡️ Ces données sont sauvegardées via le repository UEIsfceRepository.
+
+Pourquoi ce if ?
+→ Pour éviter de les recréer à chaque redémarrage : la condition empêche les doublons.
+
+----------------------------------------------------------------------
+🧠 Deuxième partie : les règles “auto-match”
+----------------------------------------------------------------------
+// Règles simples : (établissement, code externe) -> code UE ISFCE
+svc.seedRule("ULB", "INFO101", "IPDB");
+svc.seedRule("ULB", "ALG-BASE", "ALG1");
+svc.seedRule("HE2B", "WDEV-101", "WEB1");
+
+💡 Rôle :
+Ici, on appelle la méthode seedRule(...) du ExemptionService.
+Elle remplit la petite “base de connaissances” interne du service (une Map<String, String> appelée kb).
+
+Autrement dit :
+“Si un étudiant de l’ULB a suivi le cours INFO101, c’est équivalent à notre UE IPDB.”
+“Si l’ULB propose ALG-BASE, ça correspond à ALG1.”
+“Si la HE2B propose WDEV-101, c’est pareil que WEB1.”
+
+Cela permet à l’application d’être un peu “intelligente” dès le départ :
+quand un étudiant soumettra une demande, l’auto-matching fonctionnera déjà.
+
+----------------------------------------------------------------------
+🔁 Résumé du flux d’exécution au démarrage
+----------------------------------------------------------------------
+1️⃣ L’app démarre.
+2️⃣ Spring détecte cette classe @Configuration.
+3️⃣ Il exécute la méthode runner(...).
+4️⃣ Le code vérifie s’il y a des UE existantes :
+   - Si non → crée 3 cours ISFCE en base.
+5️⃣ Il configure les règles de correspondance dans le service (seedRule).
+6️⃣ Ton application démarre avec un jeu de données déjà prêt à l’emploi.
+
+----------------------------------------------------------------------
+🧩 Pourquoi c’est utile
+----------------------------------------------------------------------
+✅ Gain de temps : pas besoin d’ajouter manuellement des données à chaque test.
+✅ Cohérence : tout le monde a les mêmes données de base (utile pour les collègues ou les tests automatisés).
+✅ Testabilité : tu peux lancer ton appli et directement tester le front ou les appels API.
+✅ Évolutif : tu peux facilement ajouter d’autres cours ou mappings plus tard.
+
+----------------------------------------------------------------------
+🧱 En résumé visuel
+----------------------------------------------------------------------
+Élément | Type | Rôle
+----------|------|------
+@Configuration | Annotation | Indique que la classe contient de la config à charger au démarrage
+@Bean ApplicationRunner | Méthode | Code exécuté une fois au lancement de l’app
+ueRepo.count() == 0 | Vérification | Évite de dupliquer les UE si elles existent déjà
+ueRepo.save(...) | Action | Ajoute 3 UE de base en base H2
+svc.seedRule(...) | Action | Ajoute des règles d’équivalence entre cours externes et UE internes
+
+----------------------------------------------------------------------
+🧠 À propos du démarrage de l’application
+----------------------------------------------------------------------
+Le ApplicationRunner ne perturbe pas le SpringApplication.run de ta classe principale.
+Il est exécuté après le démarrage du contexte Spring, sans bloquer ni ralentir l’application.
+
+Flux d’exécution :
+1️⃣ SpringApplication.run démarre l’application.
+2️⃣ Spring charge tous les beans et la base H2.
+3️⃣ Le runner est exécuté une seule fois.
+4️⃣ L’application est prête à l’usage.
+
+----------------------------------------------------------------------
+💾 Persistance des données : mémoire ou disque
+----------------------------------------------------------------------
+Dans ta configuration actuelle :
+spring.datasource.url: jdbc:h2:mem:exempt;DB_CLOSE_DELAY=-1
+
+➡️ La base est en mémoire, donc elle disparaît à chaque redémarrage.
+Le SeedData s’exécute à chaque lancement pour recréer les données.
+
+Si tu veux garder les données :
+spring.datasource.url: jdbc:h2:file:./data/exempt;DB_CLOSE_ON_EXIT=FALSE;AUTO_SERVER=TRUE
+
+Type | URL JDBC | Persistance | Comportement
+------|-----------|--------------|---------------
+Mémoire | jdbc:h2:mem:exempt | Disparaît à chaque arrêt | Données recréées à chaque lancement
+Fichier | jdbc:h2:file:./data/exempt | Conservée entre les runs | Données persistantes
+
+----------------------------------------------------------------------
+✅ En résumé simple
+----------------------------------------------------------------------
+- SeedData est une classe d’initialisation automatique.
+- Elle est chargée au démarrage de l’application.
+- Elle ajoute des UE de base et des règles d’équivalence.
+- Elle ne s’exécute qu’une fois si la table n’est pas vide.
+- Elle ne perturbe pas SpringApplication.run.
+- En base H2 mémoire, les données sont recréées à chaque lancement.
+- En base H2 fichier, les données sont conservées entre les redémarrages.
+
+🌿 En une phrase :
+SeedData, c’est le petit jardinier automatique de ton application :
+il plante les premières données dans ta base et sème les correspondances
+pour que tout fonctionne dès le premier lancement 🌱
+
+======================================================================
+FIN DU DOCUMENT – À COLLER DANS WORD ET METTRE LA POLICE À 8 PT
+======================================================================
