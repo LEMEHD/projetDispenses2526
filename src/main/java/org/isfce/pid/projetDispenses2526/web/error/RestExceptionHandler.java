@@ -20,4 +20,9 @@ public class RestExceptionHandler {
                 .toList();
         return ResponseEntity.badRequest().body(Map.of("validationErrors", errors));
     }
+    
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String,Object>> handleIllegalArgument(IllegalArgumentException ex){
+        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+    }
 }

@@ -3,6 +3,7 @@ package org.isfce.pid.projetDispenses2526.web;
 import org.isfce.pid.projetDispenses2526.domain.*;
 import org.isfce.pid.projetDispenses2526.service.ExemptionService;
 import org.isfce.pid.projetDispenses2526.web.dto.*;
+
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -31,14 +32,16 @@ public class RequestController {
     }
 
     @PostMapping("/requests/{id}/courses")
-    public ExternalCourse addCourse(@PathVariable UUID id, @Valid @RequestBody AddCourseDTO dto) {
-        return svc.addExternalCourse(id, dto.etablissement(), dto.code(), dto.libelle(), dto.ects(), dto.urlProgramme());
+    public ExternalCourseDTO addCourse(@PathVariable UUID id, @Valid @RequestBody AddExternalCourseDTO dto) {
+    	ExternalCourse c = svc.addExternalCourse(id, dto.etablissement(), dto.code(), dto.libelle(), dto.ects(), dto.urlProgramme());
+    	return ExternalCourseDTO.of(c);
     }
 
     @PostMapping("/requests/{id}/documents")
-    public SupportingDocument addDoc(@PathVariable UUID id, @Valid @RequestBody AddDocumentDTO dto) {
+    public SupportingDocumentDTO addDoc(@PathVariable UUID id, @Valid @RequestBody AddDocumentDTO dto) {
         TypeDocument type = TypeDocument.valueOf(dto.type().toUpperCase());
-        return svc.addDocument(id, type, dto.url());
+        var doc = svc.addDocument(id, type, dto.url());
+        return SupportingDocumentDTO.of(doc);
     }
 
     @PostMapping("/requests/{id}/submit")

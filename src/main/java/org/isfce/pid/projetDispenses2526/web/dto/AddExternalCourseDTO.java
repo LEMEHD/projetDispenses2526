@@ -2,7 +2,7 @@ package org.isfce.pid.projetDispenses2526.web.dto;
 
 import jakarta.validation.constraints.*;
 
-public record AddCourseDTO(
+public record AddExternalCourseDTO(
         @NotBlank String etablissement,
         @NotBlank String code,
         @NotBlank String libelle,
