@@ -3,8 +3,8 @@ package org.isfce.pid.projetDispenses2526.domain;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 
 @Getter @Setter
 @NoArgsConstructor @AllArgsConstructor @Builder
@@ -24,15 +24,15 @@ public class ExemptionRequest extends BaseEntity {
 
     @OneToMany(mappedBy = "request", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default @ToString.Exclude
-    private List<ExternalCourse> externalCourses = new ArrayList<>();
+    private Set<ExternalCourse> externalCourses = new HashSet<>();
 
     @OneToMany(mappedBy = "request", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default @ToString.Exclude
-    private List<SupportingDocument> documents = new ArrayList<>();
+    private Set<SupportingDocument> documents = new HashSet<>();
 
     @OneToMany(mappedBy = "request", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default @ToString.Exclude
-    private List<ExemptionItem> items = new ArrayList<>();
+    private Set<ExemptionItem> items = new HashSet<>();
 
     // Helpers pratiques
     public void addExternalCourse(ExternalCourse c){ c.setRequest(this); externalCourses.add(c); }

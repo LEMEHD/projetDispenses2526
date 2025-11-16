@@ -18,4 +18,24 @@ public class SupportingDocument extends BaseEntity {
 
     @NotBlank @Column(nullable = false)
     private String urlStockage;
+    
+ // Règles pour Set dans ExemptionRequest
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;                  // même instance
+        if (o == null || getClass() != o.getClass()) return false;
+        SupportingDocument other = (SupportingDocument) o;
+        if (this.getId() == null || other.getId() == null) {
+            // Avant persist: id null → NE PAS les considérer égaux
+            return false;
+        }
+        return this.getId().equals(other.getId());
+    }
+
+    @Override
+    public int hashCode() {
+        // Avant persist (id null) : renvoyer un hash stable lié à la classe
+        // Après persist : hash = id.hashCode()
+        return (getId() == null) ? System.identityHashCode(this) : getId().hashCode();
+    }
 }

@@ -2,6 +2,8 @@ package org.isfce.pid.projetDispenses2526.service;
 
 import org.isfce.pid.projetDispenses2526.domain.*;
 import org.isfce.pid.projetDispenses2526.repository.*;
+import org.isfce.pid.projetDispenses2526.web.dto.ExemptionRequestDTO;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,12 @@ public class ExemptionService {
 
     public ExternalCourse addExternalCourse(UUID requestId, String etab, String code, String libelle, int ects, String url) {
         ExemptionRequest req = reqRepo.findById(requestId).orElseThrow();
+        // Empêcher la re-soumission
+        if (req.getStatut() != StatutDemande.DRAFT) {
+            throw new IllegalStateException(
+                "Cette demande n'est plus modifiable : elle est déjà " + req.getStatut().name()
+            );
+        }
         ExternalCourse c = ExternalCourse.builder()
                 .request(req).etablissement(etab).code(code).libelle(libelle).ects(ects).urlProgramme(url).build();
         c = courseRepo.save(c);
@@ -54,6 +62,12 @@ public class ExemptionService {
 
     public SupportingDocument addDocument(UUID requestId, TypeDocument type, String url) {
         ExemptionRequest req = reqRepo.findById(requestId).orElseThrow();
+        // Empêcher la re-soumission
+        if (req.getStatut() != StatutDemande.DRAFT) {
+            throw new IllegalStateException(
+                "Cette demande n'est plus modifiable : elle est déjà " + req.getStatut().name()
+            );
+        }
         SupportingDocument d = SupportingDocument.builder().request(req).type(type).urlStockage(url).build();
         d = docRepo.save(d);
         req.addDocument(d);
@@ -62,20 +76,31 @@ public class ExemptionService {
 
     public List<UEIsfce> listUE() { return ueRepo.findAll(); }
 
-    public List<ExemptionRequest> myRequests(String email) {
-        Etudiant e = getOrCreateByEmail(email);
-        return reqRepo.findByEtudiantIdOrderByCreatedAtDesc(e.getId());
+    @Transactional(readOnly = true)
+    public List<ExemptionRequestDTO> myRequests(String email) {
+        var list = reqRepo.findAllByEtudiantEmail(email);
+        return list.stream()
+                   .map(ExemptionRequestDTO::of)
+                   .toList();
     }
 
     public ExemptionRequest get(UUID id) { return reqRepo.findById(id).orElseThrow(); }
 
-    public ExemptionRequest submit(UUID id) {
+    public ExemptionRequestDTO submit(UUID id) {
         ExemptionRequest req = reqRepo.findById(id).orElseThrow();
+        
+        // Empêcher la re-soumission
+        if (req.getStatut() != StatutDemande.DRAFT) {
+            throw new IllegalStateException(
+                "Cette demande n'est plus modifiable : elle est déjà " + req.getStatut().name()
+            );
+        }
 
+        // 1) vérifs
         if (req.getExternalCourses().isEmpty()) throw new IllegalStateException("Ajoute au moins un cours externe.");
         if (req.getDocuments().isEmpty()) throw new IllegalStateException("Ajoute au moins un document.");
 
-        // Auto-prédétermination : mappe les cours connus vers des UE
+        // 2) Auto-prédétermination : mappe les cours connus vers des UE
         for (ExternalCourse c : req.getExternalCourses()) {
             String ueCode = kb.get(key(c.getEtablissement(), c.getCode()));
             if (ueCode != null) {
@@ -94,6 +119,11 @@ public class ExemptionService {
         }
         req.setStatut(StatutDemande.SUBMITTED);
         req.setUpdatedAt(Instant.now());
-        return req;
+        
+        // 3) Charger les informations dans la request  
+        ExemptionRequest loadedReq = reqRepo.findWithAllById(req.getId()).orElseThrow();
+        
+        // 4) Toujours dans la transaction → mapping sécurisé (pas de LAZY)
+        return ExemptionRequestDTO.of(loadedReq);
     }
 }
