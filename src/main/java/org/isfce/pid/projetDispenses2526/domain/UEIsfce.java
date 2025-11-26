@@ -19,4 +19,8 @@ public class UEIsfce extends BaseEntity {
 
     @Min(1) @Column(nullable = false)
     private int ects;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 2)
+    private NiveauUE niveau;
 }

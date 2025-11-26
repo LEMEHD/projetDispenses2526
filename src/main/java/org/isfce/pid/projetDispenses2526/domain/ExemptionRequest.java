@@ -13,7 +13,7 @@ public class ExemptionRequest extends BaseEntity {
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @ToString.Exclude
-    private Etudiant etudiant;
+    private Student etudiant;
 
     @NotBlank @Column(nullable = false)
     private String section; // ex: Informatique

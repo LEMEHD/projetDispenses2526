@@ -8,7 +8,7 @@ import lombok.*;
 @Getter @Setter @ToString
 @NoArgsConstructor @AllArgsConstructor @Builder
 @Entity @Table(name = "STUDENT", uniqueConstraints = @UniqueConstraint(columnNames = "email"))
-public class Etudiant extends BaseEntity {
+public class Student extends BaseEntity {
 
     @NotBlank @Email
     @Column(nullable = false, unique = true)

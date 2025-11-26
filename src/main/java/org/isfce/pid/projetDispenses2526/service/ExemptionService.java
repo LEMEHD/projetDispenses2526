@@ -8,8 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -19,9 +19,11 @@ public class ExemptionService {
     private final IEtudiantRepository etuRepo;
     private final IUEIsfceRepository ueRepo;
     private final IExemptionRequestRepository reqRepo;
-    private final IExternalCourseRepository courseRepo;
+    private final ICourseRepository courseRepo;
+    private final IExternalCourseRepository extcourseRepo;
     private final ISupportingDocumentRepository docRepo;
     private final IExemptionItemRepository itemRepo;
+    private final ICorrespondenceRuleRepository ruleRepo;
 
     /** “Base de connaissances” simple : (ETAB::CODE) -> code UE ISFCE */
     private final Map<String, String> kb = new HashMap<>();
@@ -35,12 +37,12 @@ public class ExemptionService {
 
     // ————— Flux Étudiant —————
 
-    public Etudiant getOrCreateByEmail(String email) {
-        return etuRepo.findByEmail(email).orElseGet(() -> etuRepo.save(Etudiant.builder().email(email).build()));
+    public Student getOrCreateByEmail(String email) {
+        return etuRepo.findByEmail(email).orElseGet(() -> etuRepo.save(Student.builder().email(email).build()));
     }
 
     public ExemptionRequest createDraft(String email, String section) {
-        Etudiant e = getOrCreateByEmail(email);
+        Student e = getOrCreateByEmail(email);
         ExemptionRequest req = ExemptionRequest.builder().etudiant(e).section(section).build();
         return reqRepo.save(req);
     }
@@ -55,7 +57,7 @@ public class ExemptionService {
         }
         ExternalCourse c = ExternalCourse.builder()
                 .request(req).etablissement(etab).code(code).libelle(libelle).ects(ects).urlProgramme(url).build();
-        c = courseRepo.save(c);
+        c = extcourseRepo.save(c);
         req.addExternalCourse(c);
         return c;
     }
@@ -100,30 +102,131 @@ public class ExemptionService {
         if (req.getExternalCourses().isEmpty()) throw new IllegalStateException("Ajoute au moins un cours externe.");
         if (req.getDocuments().isEmpty()) throw new IllegalStateException("Ajoute au moins un document.");
 
-        // 2) Auto-prédétermination : mappe les cours connus vers des UE
-        for (ExternalCourse c : req.getExternalCourses()) {
-            String ueCode = kb.get(key(c.getEtablissement(), c.getCode()));
-            if (ueCode != null) {
-                UEIsfce ue = ueRepo.findByCode(ueCode).orElse(null);
-                if (ue != null) {
-                    boolean ectsOk = c.getEcts() >= ue.getEcts();
-                    ExemptionItem item = ExemptionItem.builder()
-                            .request(req).ue(ue)
-                            .totalEctsMatches(ectsOk)
-                            .decision(ectsOk ? DecisionItem.AUTO_ACCEPTED : DecisionItem.NEEDS_REVIEW)
-                            .build();
-                    itemRepo.save(item);
-                    req.addItem(item);
+
+        // 1) Reconnaître les cours externes dans la base de connaissances
+        // ----------------------------------------------------------------
+        // On garde:
+        // - les KbCourse trouvés
+        // - le lien KbCourse -> ExternalCourse (pour savoir quels cours de la demande ont servi)
+
+        Map<KbCourse, List<ExternalCourse>> kbToExternal = new HashMap<>();
+        Set<ExternalCourse> externalCourses = new HashSet<>(req.getExternalCourses());
+
+        for (ExternalCourse ext : externalCourses) {
+            String schoolCode = ext.getEtablissement(); // ex: "ULB", "VINCI", "HELB"
+
+            // 1.1 Retrouver l'école
+            Optional<KbSchool> optSchool = ISchoolRepository.findByCodeIgnoreCase(schoolCode);
+            if (optSchool.isEmpty()) {
+                // école inconnue de la KB -> ce cours restera "non couvert"
+                continue;
+            }
+            KbSchool school = optSchool.get();
+
+            // 1.2 Retrouver le cours dans la KB (école + code)
+            Optional<KbCourse> optCourse = courseRepo
+                    .findByEcoleAndCodeIgnoreCase(school, ext.getCode()); // méthode à créer si pas encore là
+
+            if (optCourse.isEmpty()) {
+                // cours inconnu pour cette école -> "non couvert"
+                continue;
+            }
+
+            KbCourse kbCourse = optCourse.get();
+
+            kbToExternal
+                    .computeIfAbsent(kbCourse, k -> new ArrayList<>())
+                    .add(ext);
+        }
+
+        // 2) Appliquer les règles de correspondance
+        // ----------------------------------------------------------------
+        // On détermine quelles règles sont applicables en fonction des KbCourse
+        // présents, puis on crée les ExemptionItem correspondants.
+
+        Set<KbSchool> schoolsInRequest = kbToExternal.keySet()
+                .stream()
+                .map(KbCourse::getEcole)
+                .collect(Collectors.toSet());
+
+        List<KbCorrespondenceRule> applicableRules = new ArrayList<>();
+
+        for (KbSchool school : schoolsInRequest) {
+            List<KbCorrespondenceRule> rulesForSchool =
+                    ruleRepo.findByEcole(school); // ou findByEcole_CodeIgnoreCase(school.getCode())
+
+            for (KbCorrespondenceRule rule : rulesForSchool) {
+
+                // Vérifier que tous les KbCourse sources de la règle sont présents dans la demande
+                boolean allSourcesPresent = rule.getSources()
+                        .stream()
+                        .map(KbCorrespondenceRuleSource::getCours)
+                        .allMatch(kbToExternal::containsKey);
+
+                if (!allSourcesPresent) {
+                    continue;
                 }
+
+                // Calcul du total d'ECTS sur tous les cours sources
+                int totalEcts = rule.getSources().stream()
+                        .map(KbCorrespondenceRuleSource::getCours)
+                        .mapToInt(KbCourse::getEcts)
+                        .sum();
+
+                boolean ectsOk = rule.getMinTotalEcts() == null
+                        || totalEcts >= rule.getMinTotalEcts();
+
+                // 2.1 Créer les ExemptionItem pour chaque UE cible
+                for (KbCorrespondenceRuleTarget tgt : rule.getTargets()) {
+                    UEIsfce ue = tgt.getUe();
+
+                    ExemptionItem item = ExemptionItem.builder()
+                            .request(req)
+                            .ue(ue)
+                            .totalEctsMatches(ectsOk)
+                            .decision(ectsOk
+                                    ? DecisionItem.AUTO_ACCEPTED
+                                    : DecisionItem.NEEDS_REVIEW)
+                            .build();
+
+                    itemRepo.save(item);          // INCERTAINE: selon ta config cascade
+                    req.getItems().add(item);     // ou méthode helper req.addItem(item)
+                }
+
+                applicableRules.add(rule);
             }
         }
-        req.setStatut(StatutDemande.SUBMITTED);
-        req.setUpdatedAt(Instant.now());
-        
-        // 3) Charger les informations dans la request  
-        ExemptionRequest loadedReq = reqRepo.findWithAllById(req.getId()).orElseThrow();
-        
-        // 4) Toujours dans la transaction → mapping sécurisé (pas de LAZY)
-        return ExemptionRequestDTO.of(loadedReq);
+
+        // 3) Déterminer quels ExternalCourse sont "couverts" par au moins une règle
+        // ----------------------------------------------------------------
+        Set<ExternalCourse> coveredExternalCourses = new HashSet<>();
+
+        for (KbCorrespondenceRule rule : applicableRules) {
+            for (KbCorrespondenceRuleSource src : rule.getSources()) {
+                KbCourse kb = src.getCours();
+                List<ExternalCourse> extCourses = kbToExternal.getOrDefault(kb, List.of());
+                coveredExternalCourses.addAll(extCourses);
+            }
+        }
+
+        // 4) Statut global de la demande : SUBMITTED vs UNDER_REVIEW
+        // ----------------------------------------------------------------
+        boolean auMoinsUnAutoAccepted = req.getItems().stream()
+                .anyMatch(i -> i.getDecision() == DecisionItem.AUTO_ACCEPTED);
+
+        boolean tousCoursCouverts = externalCourses.stream()
+                .allMatch(coveredExternalCourses::contains);
+
+        if (tousCoursCouverts && auMoinsUnAutoAccepted) {
+            req.setStatut(StatutDemande.SUBMITTED); // la base de connaissances couvre tout → SUBMITTED
+        } else {
+            req.setStatut(StatutDemande.UNDER_REVIEW); // il reste des cas à traiter par le coordinateur
+        }
+
+        // 5) Sauvegarde et retour DTO
+        ExemptionRequest saved = reqRepo.save(req);
+
+        // INCERTAINE : adapte au mapper réel
+        return ExemptionRequestDTO.of(saved);
     }
 }
